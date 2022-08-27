@@ -1,13 +1,13 @@
 {
-  "name": "librarylog",
-  "version": "0.0.4",
-  "description": "A logger for libraries.",
-  "main": "./dist/librarylog.cjs",
-  "module": "./dist/librarylog.mjs",
-  "types": "./dist/librarylog.d.ts",
+  "name": "@autoplay/workerlog",
+  "version": "0.0.1",
+  "description": "A flexible logger for workers.",
+  "main": "./dist/workerlog.cjs",
+  "module": "./dist/workerlog.mjs",
+  "types": "./dist/workerlog.d.ts",
   "exports": {
-    "import": "./dist/librarylog.mjs",
-    "require": "./dist/librarylog.cjs"
+    "import": "./dist/workerlog.mjs",
+    "require": "./dist/workerlog.cjs"
   },
   "files": [
     "dist",
@@ -16,27 +16,28 @@
   "scripts": {
     "test": "jest",
     "ts-jest": "ts-jest",
+    "demo": "esbuild src/demo.ts --bundle --keep-names --minify --format=cjs --outfile=demo.cjs && node ./demo.cjs",
     "build": "tsc && npm run build:mjs && npm run build:cjs",
-    "build:mjs": "esbuild src/librarylog.ts --bundle --keep-names --minify --format=esm --outfile=dist/librarylog.mjs",
-    "build:cjs": "esbuild src/librarylog.ts --bundle --keep-names --minify --format=cjs --outfile=dist/librarylog.cjs",
+    "build:mjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=esm --outfile=dist/workerlog.mjs",
+    "build:cjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=cjs --outfile=dist/workerlog.cjs",
     "prepack": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/colelawrence/librarylog.git"
+    "url": "git+https://github.com/autoplayhq/workerlog.git"
   },
   "keywords": [
     "typescript",
-    "library",
+    "worker",
     "logging",
     "logger"
   ],
   "author": "Cole Lawrence <cole@colelawrence.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/colelawrence/librarylog/issues"
+    "url": "https://github.com/autoplayhq/workerlog/issues"
   },
-  "homepage": "https://github.com/colelawrence/librarylog#readme",
+  "homepage": "https://github.com/autoplayhq/workerlog#readme",
   "devDependencies": {
     "@types/jest": "^27.5.1",
     "esbuild": "^0.14.26",

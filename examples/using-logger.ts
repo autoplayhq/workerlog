@@ -1,7 +1,7 @@
-import { createLibraryLoggerProvider } from "..";
+import { createWorkerLoggerProvider } from "..";
 
 // create logger provider
-const provider = createLibraryLoggerProvider();
+const provider = createWorkerLoggerProvider();
 
 // root logger
 const logger = provider.getLogger()

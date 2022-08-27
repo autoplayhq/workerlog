@@ -1,7 +1,7 @@
-import { createLibraryLoggerProvider, LibraryLoggerLevel } from "..";
+import { createWorkerLoggerProvider, WorkerLoggerLevel } from "..";
 
 // create logger provider
-const logger = createLibraryLoggerProvider();
+const logger = createWorkerLoggerProvider();
 
 // set a custom console
 logger.configureLogger({
@@ -29,7 +29,7 @@ logger.configureLogger({
         console.error(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -39,7 +39,7 @@ logger.configureLogger({
         console.warn(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -49,7 +49,7 @@ logger.configureLogger({
         console.info(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -59,7 +59,7 @@ logger.configureLogger({
         console.debug(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -81,7 +81,7 @@ logger.configureLogger({
         console.error(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -91,7 +91,7 @@ logger.configureLogger({
         console.warn(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -101,7 +101,7 @@ logger.configureLogger({
         console.info(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -111,7 +111,7 @@ logger.configureLogger({
         console.debug(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])

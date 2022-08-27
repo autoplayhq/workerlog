@@ -1,6 +1,6 @@
-# librarylog
+# workerlog
 
-A logging library for libraries.
+A logging worker for workers.
 
 ## Features
 
@@ -18,10 +18,10 @@ A logging library for libraries.
 
 We can create loggers which are essentially nested from their parent.
 ```ts
-import { createLibraryLoggerProvider } from "librarylog";
+import { createWorkerLoggerProvider } from "@autoplay/workerlog";
 
 // create logger provider
-const provider = createLibraryLoggerProvider();
+const provider = createWorkerLoggerProvider();
 
 // root logger
 const logger = provider.getLogger()
@@ -35,10 +35,10 @@ const pageLogger = appLogger.named("Page", page.id)
 
 We can log for a variety of audiences.
 ```ts
-import { createLibraryLoggerProvider } from "librarylog";
+import { createWorkerLoggerProvider } from "@autoplay/workerlog";
 
 // create logger provider
-const provider = createLibraryLoggerProvider();
+const provider = createWorkerLoggerProvider();
 
 // root logger
 const logger = provider.getLogger()
@@ -91,13 +91,13 @@ It looks like the following:
 ```ts
 export interface IUtilLogger {
   /** Usually equivalent to `console.error`. */
-  error(message: string, args?: LibraryLoggable): void;
+  error(message: string, args?: WorkerLoggable): void;
   /** Usually equivalent to `console.warn`. */
-  warn(message: string, args?: LibraryLoggable): void;
+  warn(message: string, args?: WorkerLoggable): void;
   /** Usually equivalent to `console.info`. */
-  debug(message: string, args?: LibraryLoggable): void;
+  debug(message: string, args?: WorkerLoggable): void;
   /** Usually equivalent to `console.debug`. */
-  trace(message: string, args?: LibraryLoggable): void;
+  trace(message: string, args?: WorkerLoggable): void;
   named(name: string, key?: string): IUtilLogger;
 }
 ```
@@ -115,10 +115,10 @@ cssRenderHelpers.convertBezier(cssLogger, "...")
 #### Configure what gets logged
 
 ```ts
-import { createLibraryLoggerProvider } from "librarylog";
+import { createWorkerLoggerProvider } from "@autoplay/workerlog";
 
 // create logger provider
-const provider = createLibraryLoggerProvider();
+const provider = createWorkerLoggerProvider();
 
 // set custom logging behaviors (filtering and such)
 provider.configureLogging({
@@ -162,10 +162,10 @@ provider.configureLogging({
 #### Configure how it gets logged
 
 ```ts
-import { createLibraryLoggerProvider, LibraryLoggerLevel } from "librarylog";
+import { createWorkerLoggerProvider, WorkerLoggerLevel } from "@autoplay/workerlog";
 
 // create logger provider
-const logger = createLibraryLoggerProvider();
+const logger = createWorkerLoggerProvider();
 
 // set a custom console
 logger.configureLogger({
@@ -193,7 +193,7 @@ logger.configureLogger({
         console.error(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -203,7 +203,7 @@ logger.configureLogger({
         console.warn(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -213,7 +213,7 @@ logger.configureLogger({
         console.info(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])
@@ -223,7 +223,7 @@ logger.configureLogger({
         console.debug(
           meta.audience,
           meta.category,
-          LibraryLoggerLevel[meta.level],
+          WorkerLoggerLevel[meta.level],
           prefix,
           message,
           ...(args ? [args] : [])

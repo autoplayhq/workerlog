@@ -1,7 +1,7 @@
-import { createLibraryLoggerProvider } from "..";
+import { createWorkerLoggerProvider } from "..";
 
 // create logger provider
-const logger = createLibraryLoggerProvider();
+const logger = createWorkerLoggerProvider();
 
 // set custom logging behaviors (filtering and such)
 logger.configureLogging({

@@ -1,20 +1,11 @@
-import type {
-  ILibraryConsoleLogger,
-  _LibraryLogFns,
-  ILibraryInternalLoggerOptions,
-  IUtilLogger,
-  ILogger,
-} from "..";
-import { createLibraryLoggerProvider } from "../src/librarylog";
+import type { IWorkerConsoleLogger, _WorkerLogFns, IWorkerInternalLoggerOptions, IUtilLogger } from "../src/workerlog";
+import { createWorkerLoggerProvider } from "../src/workerlog";
 
 const DEBUG_LOGGER = false;
 
 function noop() {}
 
-export function describeLogger(
-  name: string,
-  body: (setup: () => ReturnType<typeof setupFn>) => void
-) {
+export function describeLogger(name: string, body: (setup: () => ReturnType<typeof setupFn>) => void) {
   describe(name, () => {
     body(
       setupFn.bind(null, {
@@ -25,12 +16,12 @@ export function describeLogger(
   });
 }
 
-function setupFn(options: ILibraryInternalLoggerOptions) {
+function setupFn(options: IWorkerInternalLoggerOptions) {
   const con = spyConsole();
-  const internal = createLibraryLoggerProvider(con, options);
+  const internal = createWorkerLoggerProvider(con, options);
   function t(logger = internal.getLogger()) {
     return {
-      expectExcluded(kind: keyof _LibraryLogFns) {
+      expectExcluded(kind: keyof _WorkerLogFns) {
         try {
           const message = `${kind} message`;
           logger[kind](message);
@@ -39,16 +30,12 @@ function setupFn(options: ILibraryInternalLoggerOptions) {
           expect(con.warn).not.toBeCalled();
           expect(con.error).not.toBeCalled();
         } catch (err) {
-          throw new LoggerTestError(
-            `Expected logger.${kind}(...) excluded from logging\n${(
-              err as Error
-            ).toString()}`
-          );
+          throw new LoggerTestError(`Expected logger.${kind}(...) excluded from logging\n${(err as Error).toString()}`);
         }
       },
       expectIncluded(
-        kind: keyof _LibraryLogFns,
-        expectOutputted: keyof ILibraryConsoleLogger,
+        kind: keyof _WorkerLogFns,
+        expectOutputted: keyof IWorkerConsoleLogger,
         includes: TestLoggerIncludes = []
       ) {
         try {
@@ -79,12 +66,7 @@ function setupFn(options: ILibraryInternalLoggerOptions) {
       named(name: string, key?: string | number) {
         return t(logger.named(name, key));
       },
-      downgrade: objMap(
-        logger.downgrade,
-        ([audience, downgradeFn]) =>
-          () =>
-            setupUtilLogger(downgradeFn(), audience, con)
-      ),
+      downgrade: () => setupUtilLogger(logger.downgrade(), con),
     };
   }
   return {
@@ -94,88 +76,56 @@ function setupFn(options: ILibraryInternalLoggerOptions) {
   };
 }
 
-function expectLastCalledWith(
-  fn: jest.MockInstance<any, any[]>,
-  includes: TestLoggerIncludes
-) {
+function expectLastCalledWith(fn: jest.MockInstance<any, any[]>, includes: TestLoggerIncludes) {
   expect(fn).toBeCalled();
   if (includes.length > 0) {
     const [lastCall] = fn.mock.calls;
     const concat = lastCall.filter(Boolean).map(String).join(", ");
     const errors = includes.flatMap((includeTest) => {
       if (typeof includeTest === "string") {
-        return concat.includes(includeTest)
-          ? []
-          : [`didn't include ${JSON.stringify(includeTest)}`];
+        return concat.includes(includeTest) ? [] : [`didn't include ${JSON.stringify(includeTest)}`];
       } else if ("test" in includeTest) {
-        return includeTest.test(concat)
-          ? []
-          : [`didn't match ${String(includeTest)}`];
+        return includeTest.test(concat) ? [] : [`didn't match ${String(includeTest)}`];
       } else if (typeof includeTest.not === "string") {
         return concat.includes(includeTest.not)
           ? [`wasn't supposed to include ${JSON.stringify(includeTest.not)}`]
           : [];
       } else if ("test" in includeTest.not) {
-        return includeTest.not.test(concat)
-          ? [`wasn't supposed to match ${String(includeTest.not)}`]
-          : [];
+        return includeTest.not.test(concat) ? [`wasn't supposed to match ${String(includeTest.not)}`] : [];
       }
     });
     if (errors.length > 0) {
-      throw new LoggerTestError(
-        `Last called with ${JSON.stringify(concat)}, but ${errors.join(", ")}`
-      );
+      throw new LoggerTestError(`Last called with ${JSON.stringify(concat)}, but ${errors.join(", ")}`);
     }
   }
 }
 
-function objMap<T, U>(
-  template: T,
-  eachEntry: <P extends keyof T>(entry: [name: P, value: T[P]]) => U
-): { [P in keyof T]: U } {
-  // @ts-ignore
-  return Object.fromEntries(
-    Object.entries(template).map((entry) => {
-      // @ts-ignore
-      return [entry[0], eachEntry(entry)];
-    })
-  );
-}
-
 type TestLoggerIncludes = ((string | RegExp) | { not: string | RegExp })[];
 
-function setupUtilLogger(
-  logger: IUtilLogger,
-  audience: keyof ILogger["downgrade"],
-  con: jest.Mocked<ILibraryConsoleLogger>
-) {
+function setupUtilLogger(logger: IUtilLogger, con: jest.Mocked<IWorkerConsoleLogger>) {
   return {
     named(name: string, key?: string) {
-      return setupUtilLogger(logger.named(name, key), audience, con);
+      return setupUtilLogger(logger.named(name, key), con);
     },
     expectExcluded(kind: keyof IUtilLogger) {
       try {
-        const message = `${audience} ${kind} message`;
+        const message = `${kind} message`;
         logger[kind](message);
         expect(con.debug).not.toBeCalled();
         expect(con.info).not.toBeCalled();
         expect(con.warn).not.toBeCalled();
         expect(con.error).not.toBeCalled();
       } catch (err) {
-        throw new LoggerTestError(
-          `Expected "${audience}" logger.${kind}(...) excluded from logging\n${(
-            err as Error
-          ).toString()}`
-        );
+        throw new LoggerTestError(`Expected logger.${kind}(...) excluded from logging\n${(err as Error).toString()}`);
       }
     },
     expectIncluded(
       kind: keyof IUtilLogger,
-      expectOutputted: keyof ILibraryConsoleLogger,
+      expectOutputted: keyof IWorkerConsoleLogger,
       includes: TestLoggerIncludes = []
     ) {
       try {
-        const message = `${audience} ${kind} message`;
+        const message = `${kind} message`;
         logger[kind](message);
         if (expectOutputted !== "debug") {
           expect(con.debug).not.toBeCalled();
@@ -192,7 +142,7 @@ function setupUtilLogger(
         expectLastCalledWith(con[expectOutputted], includes);
       } catch (err) {
         throw new LoggerTestError(
-          `Expected "${audience}" logger.${kind}(...) included and outputted via console.${expectOutputted}(...)\n${(
+          `Expected util logger.${kind}(...) included and outputted via console.${expectOutputted}(...)\n${(
             err as Error
           ).toString()}`
         );
@@ -202,7 +152,7 @@ function setupUtilLogger(
   };
 }
 
-function spyConsole(): jest.Mocked<ILibraryConsoleLogger> {
+function spyConsole(): jest.Mocked<IWorkerConsoleLogger> {
   return {
     debug: jest.fn(),
     info: jest.fn(),
