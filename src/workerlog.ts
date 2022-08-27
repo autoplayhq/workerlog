@@ -499,7 +499,7 @@ function _createConsoleLogger(
     : f.bind(source, _LoggerLevel._WARN);
   const _debug = _DEBUG
     ? styled
-      ? con.info.bind(con, `${COLOR_DEBUG}DEBUG `, ...prefix, COLOR_DEBUG)
+      ? con.info.bind(con, `${COLOR_DEBUG}DEBUG`, ...prefix, COLOR_DEBUG)
       : con.info.bind(con, ...prefix)
     : f.bind(source, _LoggerLevel._DEBUG);
   const _trace = _TRACE
