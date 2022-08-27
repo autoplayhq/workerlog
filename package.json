@@ -16,7 +16,7 @@
   "scripts": {
     "test": "jest",
     "ts-jest": "ts-jest",
-    "demo": "esbuild src/demo.ts --bundle --keep-names --minify --format=cjs --outfile=demo.cjs && node ./demo.cjs",
+    "demo": "esbuild demo.ts --bundle --keep-names --minify --format=cjs --outfile=demo.cjs && node ./demo.cjs",
     "build": "tsc && npm run build:mjs && npm run build:cjs",
     "build:mjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=esm --outfile=dist/workerlog.mjs",
     "build:cjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=cjs --outfile=dist/workerlog.cjs",

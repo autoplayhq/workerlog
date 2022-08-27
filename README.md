@@ -1,12 +1,12 @@
 # workerlog
 
-A logging worker for workers.
+A logging library for workers or servers.
+
+![Screenshot of colorful logs from `npm run demo`](./demo.png)
 
 ## Features
 
-✔ Multiple levels based on audience. Public, Developers, Internal
-
-✔ Colorful browser logs
+✔ Colorful console logs
 
 ✔ CommonJS
 
@@ -33,80 +33,12 @@ const appLogger = logger.named("App")
 const pageLogger = appLogger.named("Page", page.id)
 ```
 
-We can log for a variety of audiences.
-```ts
-import { createWorkerLoggerProvider } from "@autoplay/workerlog";
-
-// create logger provider
-const provider = createWorkerLoggerProvider();
-
-// root logger
-const logger = provider.getLogger()
-
-// create nested loggers
-const appLogger = logger.named("App")
-
-// create nested loggers with a name and a key
-const pageLogger = appLogger.named("Page", page.id)
-```
-
-See the breadth of logger functions with example messages.
-All log functions accept one message and one optional arguments object.
-```ts
-// internal log functions
-appLogger._error("We've experienced a general problem")
-appLogger._hmm("This doesn't look right")
-appLogger._todo("I'm not finished")
-appLogger._kapow("Lookie here! I guess we do execute this code")
-appLogger._warn("I'm not finished")
-appLogger._debug("Opening page", { pageId: "..." })
-appLogger._trace("User mouse clicked", { mouseEvent: "..." })
-
-// developer log functions
-appLogger.errorDev("Data passed in was malformed")
-appLogger.warnDev("Challenge with loading exports sourcemaps. Ensure you're compiling with esm: true")
-appLogger.debugDev("Page loaded", { pageId: "...", duration: "...", objects: 120 })
-appLogger.traceDev("Loading page's external object", { pageId: "...", objectId: "..." })
-
-// public log functions
-appLogger.errorPublic("Something that just cannot go unnoticed!")
-appLogger.warnPublic("Something so so important!")
-```
-
-### Lazy logging
-
-All log functions also come with a `.lazy.<logfn>(message, () => args)` version.
-```ts
-// execute the inner function only if the log is included in logging
-appLogger.lazy.debugDev("Page loaded", () => ({ pageId: "...", pageMeta: calculatePageMeta() }))
-```
-
 ### Downgrading
-
-In many places in your code such as in utility functions, you don't know which
-audience the logs are for. So, in this case, you can use `.downgrade.<audience>()`
-to produce a `IUtilLogger` (which is also nameable).
-
-It looks like the following:
-```ts
-export interface IUtilLogger {
-  /** Usually equivalent to `console.error`. */
-  error(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.warn`. */
-  warn(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.info`. */
-  debug(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.debug`. */
-  trace(message: string, args?: WorkerLoggable): void;
-  named(name: string, key?: string): IUtilLogger;
-}
-```
 
 For example,
 ```ts
-// now, any logs that `cssRenderHelpers` wants to surface, will go through
-// the `internal` audience.
-const cssLogger = appLogger.downgrade.internal()
+// now, any logs that `cssRenderHelpers` wants to surface, will go through `appLogger` 
+const cssLogger = appLogger.downgrade()
 cssRenderHelpers.convertBezier(cssLogger, "...")
 ```
 
@@ -124,10 +56,6 @@ const provider = createWorkerLoggerProvider();
 provider.configureLogging({
   // disable style to the console (if the logger does not support style, this won't have an effect)
   consoleStyle: false,
-  // include logs made for the dev audience
-  dev: true,
-  // include logs made for the internal audience
-  internal: true,
 
   // configure the behavior of inclusion based on source of the logs
   include(source) {
@@ -191,7 +119,6 @@ logger.configureLogger({
     return {
       error(meta, message, args) {
         console.error(
-          meta.audience,
           meta.category,
           WorkerLoggerLevel[meta.level],
           prefix,
@@ -201,7 +128,6 @@ logger.configureLogger({
       },
       warn(meta, message, args) {
         console.warn(
-          meta.audience,
           meta.category,
           WorkerLoggerLevel[meta.level],
           prefix,
@@ -211,7 +137,6 @@ logger.configureLogger({
       },
       debug(meta, message, args) {
         console.info(
-          meta.audience,
           meta.category,
           WorkerLoggerLevel[meta.level],
           prefix,
@@ -221,7 +146,6 @@ logger.configureLogger({
       },
       trace(meta, message, args) {
         console.debug(
-          meta.audience,
           meta.category,
           WorkerLoggerLevel[meta.level],
           prefix,
