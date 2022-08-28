@@ -1,6 +1,6 @@
 {
   "name": "@autoplay/workerlog",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A flexible logger for workers.",
   "main": "./dist/workerlog.cjs",
   "module": "./dist/workerlog.mjs",
@@ -10,17 +10,17 @@
     "require": "./dist/workerlog.cjs"
   },
   "files": [
-    "dist",
-    "src"
+    "dist/workerlog.*",
+    "src/workerlog.ts"
   ],
   "scripts": {
     "test": "jest",
     "ts-jest": "ts-jest",
-    "demo": "esbuild demo.ts --bundle --keep-names --minify --format=cjs --outfile=demo.cjs && node ./demo.cjs",
+    "demo": "esbuild ./src/demo.ts --bundle --keep-names --minify --format=cjs --outfile=demo.cjs && node ./demo.cjs",
     "build": "tsc && npm run build:mjs && npm run build:cjs",
     "build:mjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=esm --outfile=dist/workerlog.mjs",
     "build:cjs": "esbuild src/workerlog.ts --bundle --keep-names --minify --format=cjs --outfile=dist/workerlog.cjs",
-    "prepack": "npm run build"
+    "prepare": "npm run build"
   },
   "repository": {
     "type": "git",
