@@ -1,6 +1,6 @@
 {
   "name": "@autoplay/workerlog",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "A flexible logger for workers.",
   "main": "./dist/workerlog.cjs",
   "module": "./dist/workerlog.mjs",

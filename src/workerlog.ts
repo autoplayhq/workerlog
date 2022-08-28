@@ -24,23 +24,6 @@ export interface IWorkerConsoleLogger {
   debug(message: string, ...args: any[]): void;
 }
 
-/**
- * "Downgraded" {@link ILogger} for passing down to utility functions.
- *
- * A util logger is usually back by some specific {@link _Audience}.
- */
-export interface IUtilLogger {
-  /** Usually equivalent to `console.error`. */
-  error(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.warn`. */
-  warn(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.info`. */
-  debug(message: string, args?: WorkerLoggable): void;
-  /** Usually equivalent to `console.debug`. */
-  trace(message: string, args?: WorkerLoggable): void;
-  named(name: string, key?: string): IUtilLogger;
-}
-
 export type WorkerLoggable = Record<string, any>;
 export type WorkerLogFn = (message: string, args?: WorkerLoggable) => void;
 
@@ -48,10 +31,9 @@ export type _WorkerLogFns = Readonly<{
   [P in keyof typeof LEVELS]: WorkerLogFn;
 }>;
 
-/** Internal worker logger */
+/** workerlog Logger */
 export interface ILogger extends _WorkerLogFns {
   named(name: string, key?: string | number): ILogger;
-  downgrade(): IUtilLogger;
 }
 
 export type IWorkerLoggerConfig =
@@ -59,9 +41,9 @@ export type IWorkerLoggerConfig =
   "console"
   | {
       type: "console";
-      /** default `true` */
-      colors?: boolean;
-      /** default {@link console} */
+      /** default `true` This logger supports ANSI colors. */
+      ansiColors?: boolean;
+      /** default {@link console} (the built-in global logger) */
       console?: IWorkerConsoleLogger;
     }
   | {
@@ -89,6 +71,49 @@ export type IWorkerLogIncludes = {
    */
   min?: WorkerLoggerLevel;
 };
+type RegExpTestLike = { test(value: string): boolean };
+
+/** Parameters fo {@link IWorkerLoggingConfig.consoleStyle} */
+export type IWorkerLoggingStyleConfig = {
+  /** Disable style. You can also just pass `false` or `null` to {@link IWorkerLoggingConfig.consoleStyle}, so this is here for convenience. */
+  disable?: boolean;
+  /**
+   * Doc: Look at the ../wikipedia-ansi-color-chart.png to estimate how to position.
+   *
+   * e.g.
+   * @example
+   * // full gamut
+   * name => `\u001b[38;5;${(name.charCodeAt(0) + name.charCodeAt(name.length - 1)) % 178 + 52}m`,
+   * // muted section of chart
+   * name => `\u001b[38;5;${22 + (name.charCodeAt(0) % 12) + (name.charCodeAt(name.length - 1) % 6) * 36}m`,
+   * // loud section of chart
+   * name => `\u001b[38;5;${40 + (name.charCodeAt(0) % 12) + (name.charCodeAt(name.length - 1) % 6) * 36}m`,
+   */
+  color?: "bright" | "muted" | "grayscale" | ((nameOrKey: string) => string);
+  /**
+   * Test a value to see whether italic should be applied.
+   * Use a RegExp or similar with `test(str): bool` function.
+   */
+  bold?: RegExp | RegExpTestLike | ((nameOrKey: string) => boolean);
+  /**
+   * Test a value to see whether italic should be applied.
+   * Use a RegExp or similar with `test(str): bool` function.
+   */
+  italic?: RegExp | RegExpTestLike | ((nameOrKey: string) => boolean);
+  /**
+   * Test a value to see whether underline should be applied.
+   * Use a RegExp or similar with `test(str): bool` function.
+   */
+  underline?: RegExp | RegExpTestLike | ((nameOrKey: string) => boolean);
+  /**
+   * Test a value to see whether collapsing or a custom replace string should be applied.
+   * 
+   * @remarks
+   * Replacing does not affect the style, so color, bold, italic, and underline are all determined
+   * before the replacement happens.
+   */
+  replace?: "collapse" | ((name: string) => string);
+};
 
 export type IWorkerLoggingConfig = IWorkerLogIncludes & {
   /**
@@ -97,7 +122,8 @@ export type IWorkerLoggingConfig = IWorkerLogIncludes & {
    * Return `void` to indicate that the settings for the root logger should be used
    */
   include?: (source: IWorkerLogSource) => IWorkerLogIncludes | void;
-  consoleColor?: boolean;
+  /** Defaults to `true` */
+  consoleStyle?: boolean | null | IWorkerLoggingStyleConfig;
 };
 
 /** @internal */
@@ -197,14 +223,29 @@ function shouldLog(includes: Required<IWorkerLogIncludes>, level: _LoggerLevel) 
 /** @internal */
 export { shouldLog as _loggerShouldLog };
 
+type InternalReplaceNameFn = (this: InternalLoggerStyleRef, name: string) => string;
+function createInternalReplaceFn(replacer: (name: string) => string): InternalReplaceNameFn {
+  return function replaceCollapse(this, name) {
+    const collapsed = replacer(name);
+    if (!this.prefixMemo.has(collapsed)) {
+      this.prefixMemo.set(collapsed, this.prefix(name));
+    }
+    return collapsed;
+  };
+}
+
 type InternalLoggerStyleRef = {
-  italic?: RegExp;
-  bold?: RegExp;
+  bold?: RegExpTestLike;
+  italic?: RegExpTestLike;
+  underline?: RegExpTestLike;
+  // if bold or italic exist, then we should have a prefix reset
+  suffix: string;
   color?: (name: string) => string;
-  collapseOnRE: RegExp;
+  ansiColor?: (x: number, y: number) => number;
+  /** replace names */
+  replace?: InternalReplaceNameFn;
   prefixMemo: Map<string, string>;
   prefix(this: InternalLoggerStyleRef, name: string): string;
-  collapsed(this: InternalLoggerStyleRef, name: string): string;
 };
 
 type InternalLoggerRef = {
@@ -224,10 +265,21 @@ type InternalLoggerRef = {
   named(this: InternalLoggerRef, parent: IWorkerLogSource, name: string, key?: number | string): ILogger;
 };
 
-// FUTURE: Allow choosing hashing style?
-// Doc: Look at the ../wikipedia-ansi-color-chart.png to estimate how to position
-const mutedAnsi = (x: number, y: number) => 22 + (x % 11) + (y % 6) * 36;
-
+const EMPTY_STRING = "";
+/**
+ * hmm... we don't actually do the resetting stuff like this. It didn;'t seem to work as well as just straight full reset.
+ * "\\033[3m  Italics on"
+ * "\\033[23m Italics off"
+ * "\\033[4m  Underline on"
+ * "\\033[24m Underline off"
+ * "\\033[1m  Bold on"
+ * "\\033[21m Bold off"
+ * "\\033[0m Reset everything"
+ */
+const ANSI_BOLD = "\u001b[1m";
+const ANSI_ITALIC = "\u001b[3m";
+const ANSI_UNDERLINE = "\u001b[4m";
+const ANSI_RESET = "\u001b[0m";
 const DEFAULTS: InternalLoggerRef = {
   loggingConsoleColor: true,
   loggerConsoleStyle: true,
@@ -248,41 +300,33 @@ const DEFAULTS: InternalLoggerRef = {
   style: {
     bold: undefined, // /Service$/
     italic: undefined, // /Model$/
-    prefixMemo: new Map<string, string>([
-      // handle empty names so we don't have to check for
-      // name.length > 0 during this.css('')
-      ["", ""],
-      // bring a specific override
-      // ["Marker", "color:#aea9ff;font-size:0.75em;text-transform:uppercase"]
-    ]),
-    collapseOnRE: /[a-z- ]+/g,
+    underline: undefined, // /IP$/
+    replace: undefined,
+    suffix: EMPTY_STRING,
+    // should be assigned new anytime logging settings change
+    // so different logging settings don't share a cache.
+    prefixMemo: newPrefixMemo(),
     color: undefined,
+    ansiColor: undefined,
     // create collapsed name
     // insert collapsed name into cssMemo with original's style
-    collapsed(this, name) {
-      if (name.length < 5) return name;
-      const collapsed = name.replace(this.collapseOnRE, "");
-      if (!this.prefixMemo.has(collapsed)) {
-        this.prefixMemo.set(collapsed, this.prefix(name));
-      }
-      return collapsed;
-    },
     prefix(this, name): string {
       const found = this.prefixMemo.get(name);
-      if (found) return found;
+      if (found != null) return found;
       let prefix =
-        this.color?.(name) ?? "\u001b[38;5;" + `${mutedAnsi(name.charCodeAt(0), name.charCodeAt(name.length - 1))}m`;
-      /**
-       * "\\033[4m  Underline on"
-       * "\\033[24m Underline off"
-       * "\\033[1m  Bold on"
-       * "\\033[21m Bold off"
-       */
-      if (this.bold) {
-        prefix += this.bold.test(name) ? "\u001b[1m" : "\u001b[21m";
+        this.color !== undefined
+          ? this.color(name)
+          : this.ansiColor !== undefined
+          ? `\u001b[38;5;${this.ansiColor(name.charCodeAt(0), name.charCodeAt(name.length - 1))}m`
+          : "";
+      if (this.bold?.test(name)) {
+        prefix += ANSI_BOLD;
       }
-      if (this.italic) {
-        prefix += this.italic.test(name) ? "\u001b[4m" : "\u001b[24m";
+      if (this.italic?.test(name)) {
+        prefix += ANSI_ITALIC;
+      }
+      if (this.underline?.test(name)) {
+        prefix += ANSI_UNDERLINE;
       }
       this.prefixMemo.set(name, prefix);
       return prefix;
@@ -291,26 +335,35 @@ const DEFAULTS: InternalLoggerRef = {
 };
 
 /** @public internal facing root logger */
-export type IWorkerInternalLogger = {
+export type IWorkerLoggerProvider = {
   configureLogger(config: IWorkerLoggerConfig): void;
   configureLogging(config: IWorkerLoggingConfig): void;
   getLogger(): ILogger;
 };
 
-export type IWorkerInternalLoggerOptions = {
-  _error?: (message: string, args?: object) => void;
-  _debug?: (message: string, args?: object) => void;
-};
+function newPrefixMemo(): Map<string, string> {
+  return new Map<string, string>([
+    // handle empty names so we don't have to check for
+    // name.length > 0 during this.css('')
+    [EMPTY_STRING, EMPTY_STRING],
+  ]);
+}
+
+// // Not yet, used, but good pattern to have in case we want to log something
+// // or report something interesting.
+// export type IWorkerInternalLoggerOptions = {
+//   _error?: (message: string, args?: object) => void;
+//   _debug?: (message: string, args?: object) => void;
+// };
 
 export function createWorkerLoggerProvider(
-  useConsole: IWorkerConsoleLogger = console,
-  // Not yet, used, but good pattern to have in case we want to log something
-  // or report something interesting.
-  _options: IWorkerInternalLoggerOptions = {}
-): IWorkerInternalLogger {
+  useConsole: IWorkerConsoleLogger = console
+  // // Not yet, used, but good pattern to have in case we want to log something
+  // // or report something interesting.
+  // _options: IWorkerInternalLoggerOptions = {}
+): IWorkerLoggerProvider {
   const ref: InternalLoggerRef = {
     ...DEFAULTS,
-    includes: { ...DEFAULTS.includes },
   };
   const createConsole = {
     styled: createConsoleLoggerStyled.bind(ref, useConsole),
@@ -329,7 +382,7 @@ export function createWorkerLoggerProvider(
         ref.loggerConsoleStyle = DEFAULTS.loggerConsoleStyle;
         ref.create = getConCreate();
       } else if (config.type === "console") {
-        ref.loggerConsoleStyle = config.colors ?? DEFAULTS.loggerConsoleStyle;
+        ref.loggerConsoleStyle = config.ansiColors ?? DEFAULTS.loggerConsoleStyle;
         ref.create = getConCreate();
       } else if (config.type === "keyed") {
         ref.createExt = (source) => config.keyed(source.names);
@@ -340,15 +393,66 @@ export function createWorkerLoggerProvider(
       }
     },
     configureLogging(config) {
+      ref.includes = { ...ref.includes };
       ref.includes.min = config.min ?? DEFAULTS.includes.min;
       ref.include = config.include ?? DEFAULTS.include;
-      ref.loggingConsoleColor = config.consoleColor ?? DEFAULTS.loggingConsoleColor;
+      const styleConfig = config.consoleStyle === null ? false : config.consoleStyle ?? true;
+      // console.log("%%%".repeat(12), { styleConfig });
+      if (!styleConfig) {
+        ref.loggingConsoleColor = false;
+      } else {
+        ref.loggingConsoleColor = true;
+        if (styleConfig !== true) {
+          // must start with a new prefixMemo so other results don't conflict
+          const refStyle = { ...DEFAULTS.style, prefixMemo: newPrefixMemo() };
+          ref.style = refStyle;
+          refStyle.bold = testLike(styleConfig.bold);
+          refStyle.italic = testLike(styleConfig.italic);
+          refStyle.underline = testLike(styleConfig.underline);
+          if (styleConfig.bold || styleConfig.italic) refStyle.suffix = ANSI_RESET;
+          if (styleConfig.replace === "collapse") {
+            const collapseOnRE = /[a-z- ]+/g;
+            refStyle.replace = createInternalReplaceFn((name) =>
+              name.length < 5 ? name : name.replace(collapseOnRE, EMPTY_STRING)
+            );
+          } else if (styleConfig.replace) {
+            refStyle.replace = createInternalReplaceFn(styleConfig.replace);
+          }
+          switch (styleConfig.color) {
+            // Doc: Look at the ../wikipedia-ansi-color-chart.png to estimate how to position
+            case "bright":
+              refStyle.ansiColor = function bright(x: number, y: number) {
+                return 40 + (x % 12) + (y % 6) * 36;
+              };
+              break;
+            case "grayscale":
+              refStyle.ansiColor = function grayscale(x: number, y: number) {
+                return 240 + ((x + y) % 12);
+              };
+              break;
+            case "muted":
+            // no color override function, so default to muted ansi color
+            case undefined:
+              refStyle.ansiColor = function muted(x: number, y: number) {
+                return 22 + (x % 12) + (y % 6) * 36;
+              };
+              break;
+            default:
+              refStyle.color = styleConfig.color;
+          }
+        }
+      }
+      // console.log("%%%".repeat(12), { ref });
       ref.create = getConCreate();
     },
     getLogger() {
       return ref.create({ names: [] });
     },
   };
+}
+
+function testLike(x: undefined | RegExpTestLike | ((s: string) => boolean)): undefined | RegExpTestLike {
+  return typeof x === "function" ? { test: x } : x;
 }
 
 // make things accessible on the default export
@@ -393,17 +497,6 @@ function createExtLogger(this: InternalLoggerRef, source: IWorkerLogSource): ILo
     trace: _trace,
     //
     named,
-    downgrade() {
-      return {
-        debug: logger.debug,
-        error: logger.error,
-        warn: logger.warn,
-        trace: logger.trace,
-        named(name, key) {
-          return logger.named(name, key).downgrade();
-        },
-      };
-    },
   };
 
   return logger;
@@ -419,19 +512,17 @@ function createConsoleLoggerStyled(
   const len = source.names.length;
   const nameArr = new Array(len);
   for (let i = 0; i < source.names.length; i++) {
-    const { name, key } = source.names[i];
-    nameArr[i] = `${this.style.prefix(name)}${name}`;
+    let { name, key } = source.names[i];
+    name = this.style.replace?.(name) ?? name;
+    nameArr[i] = `${this.style.prefix(name)}${name}${this.style.suffix}`;
     if (key != null) {
-      const keyStr = `#${key}`;
-      nameArr[i] += this.style.prefix(keyStr) + keyStr;
+      let keyStr = String(key);
+      nameArr[i] += `${this.style.prefix(keyStr)}#${keyStr}${this.style.suffix}`;
     }
   }
-  // // reset (also ends up adding a space at the end)
-  // nameArr[len] = "\u001b[39m\u001b[49m";
 
-  const f = this.filtered;
   const named = this.named.bind(this, source);
-  return _createConsoleLogger(f, source, includes, con, true, nameArr, named);
+  return _createConsoleLogger(this.filtered, source, includes, con, true, nameArr, named);
 }
 
 function createConsoleLoggerNoStyle(
@@ -450,17 +541,16 @@ function createConsoleLoggerNoStyle(
     }
   }
 
-  const f = this.filtered;
   const named = this.named.bind(this, source);
-  return _createConsoleLogger(f, source, includes, con, false, nameArr, named);
+  return _createConsoleLogger(this.filtered, source, includes, con, false, nameArr, named);
 }
 
-const COLOR_HMM = "\u001b[38;5;13m";
-const COLOR_TODO = "\u001b[38;5;14m";
-const COLOR_ERROR = "\u001b[38;5;9m";
-const COLOR_WARN = "\u001b[38;5;11m";
-const COLOR_DEBUG = "\u001b[38;5;15m";
-const COLOR_TRACE = "\u001b[38;5;7m";
+const COLOR_HMM = ANSI_RESET + "\u001b[38;5;13m";
+const COLOR_TODO = ANSI_RESET + "\u001b[38;5;14m";
+const COLOR_ERROR = ANSI_RESET + "\u001b[38;5;9m";
+const COLOR_WARN = ANSI_RESET + "\u001b[38;5;11m";
+const COLOR_DEBUG = ANSI_RESET + "\u001b[38;5;15m";
+const COLOR_TRACE = ANSI_RESET + "\u001b[38;5;7m";
 /** Used by {@link createConsoleLoggerNoStyle} and {@link createConsoleLoggerStyled} */
 function _createConsoleLogger(
   f: (this: IWorkerLogSource, level: _LoggerLevel, message: string, args?: object | undefined) => void,
@@ -516,17 +606,6 @@ function _createConsoleLogger(
     trace: _trace,
     //
     named,
-    downgrade() {
-      return {
-        debug: logger.debug,
-        error: logger.error,
-        warn: logger.warn,
-        trace: logger.trace,
-        named(name, key) {
-          return logger.named(name, key).downgrade();
-        },
-      };
-    },
   };
 
   return logger;
