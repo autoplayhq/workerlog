@@ -107,12 +107,20 @@ export type IWorkerLoggingStyleConfig = {
   underline?: RegExp | RegExpTestLike | ((nameOrKey: string) => boolean);
   /**
    * Test a value to see whether collapsing or a custom replace string should be applied.
-   * 
+   *
    * @remarks
    * Replacing does not affect the style, so color, bold, italic, and underline are all determined
    * before the replacement happens.
    */
   replace?: "collapse" | ((name: string) => string);
+  /**
+   * Test a value to see whether truncation or a custom replace string should be applied.
+   *
+   * @remarks
+   * Replacing does not affect the style, so color, bold, italic, and underline are all determined
+   * before the replacement happens.
+   */
+  replaceKey?: "truncate" | ((key: string) => string);
 };
 
 export type IWorkerLoggingConfig = IWorkerLogIncludes & {
@@ -244,6 +252,7 @@ type InternalLoggerStyleRef = {
   ansiColor?: (x: number, y: number) => number;
   /** replace names */
   replace?: InternalReplaceNameFn;
+  replaceKey?: InternalReplaceNameFn;
   prefixMemo: Map<string, string>;
   prefix(this: InternalLoggerStyleRef, name: string): string;
 };
@@ -280,6 +289,9 @@ const ANSI_BOLD = "\u001b[1m";
 const ANSI_ITALIC = "\u001b[3m";
 const ANSI_UNDERLINE = "\u001b[4m";
 const ANSI_RESET = "\u001b[0m";
+function muted(x: number, y: number) {
+  return 22 + (x % 12) + (y % 6) * 36;
+}
 const DEFAULTS: InternalLoggerRef = {
   loggingConsoleColor: true,
   loggerConsoleStyle: true,
@@ -307,7 +319,7 @@ const DEFAULTS: InternalLoggerRef = {
     // so different logging settings don't share a cache.
     prefixMemo: newPrefixMemo(),
     color: undefined,
-    ansiColor: undefined,
+    ansiColor: muted,
     // create collapsed name
     // insert collapsed name into cssMemo with original's style
     prefix(this, name): string {
@@ -418,6 +430,11 @@ export function createWorkerLoggerProvider(
           } else if (styleConfig.replace) {
             refStyle.replace = createInternalReplaceFn(styleConfig.replace);
           }
+          if (styleConfig.replaceKey === "truncate") {
+            refStyle.replaceKey = createInternalReplaceFn((key) => (key.length > 16 ? key.slice(0, 16) : key));
+          } else if (styleConfig.replaceKey) {
+            refStyle.replaceKey = createInternalReplaceFn(styleConfig.replaceKey);
+          }
           switch (styleConfig.color) {
             // Doc: Look at the ../wikipedia-ansi-color-chart.png to estimate how to position
             case "bright":
@@ -433,9 +450,7 @@ export function createWorkerLoggerProvider(
             case "muted":
             // no color override function, so default to muted ansi color
             case undefined:
-              refStyle.ansiColor = function muted(x: number, y: number) {
-                return 22 + (x % 12) + (y % 6) * 36;
-              };
+              refStyle.ansiColor = muted;
               break;
             default:
               refStyle.color = styleConfig.color;
@@ -517,6 +532,7 @@ function createConsoleLoggerStyled(
     nameArr[i] = `${this.style.prefix(name)}${name}${this.style.suffix}`;
     if (key != null) {
       let keyStr = String(key);
+      if (this.style.replaceKey) keyStr = this.style.replaceKey(keyStr);
       nameArr[i] += `${this.style.prefix(keyStr)}#${keyStr}${this.style.suffix}`;
     }
   }
