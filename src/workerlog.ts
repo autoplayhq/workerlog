@@ -6,9 +6,11 @@ export interface IWorkerLogger {
   trace(level: IWorkerLogMeta, message: string, args?: WorkerLoggable): void;
 }
 
+export type IWorkerLogCategory = "general" | "todo" | "troubleshooting";
+
 /** Passed in when you configure your own logger endpoint via {@link IWorkerLogger} */
 export type IWorkerLogMeta = Readonly<{
-  category: "general" | "todo" | "troubleshooting";
+  category: IWorkerLogCategory;
   level: WorkerLoggerLevel;
 }>;
 
@@ -32,11 +34,13 @@ export type _WorkerLogFns = Readonly<{
 }>;
 
 /** workerlog Logger */
-export interface ILogger extends _WorkerLogFns {
-  named(name: string, key?: string | number): ILogger;
+export interface ILogger<TCtx = unknown> extends _WorkerLogFns {
+  readonly ctx: TCtx;
+  with(newContext: Partial<TCtx>): ILogger<TCtx>;
+  named(name: string, key?: string | number): ILogger<TCtx>;
 }
 
-export type IWorkerLoggerConfig =
+export type IWorkerLoggerConfig<TCtx> =
   | /** default {@link console} */
   "console"
   | {
@@ -48,7 +52,7 @@ export type IWorkerLoggerConfig =
     }
   | {
       type: "named";
-      named(names: string[]): IWorkerLogger;
+      named(names: string[], ctx: TCtx): IWorkerLogger;
     }
   | {
       type: "keyed";
@@ -56,12 +60,14 @@ export type IWorkerLoggerConfig =
         nameAndKeys: {
           name: string;
           key?: string | number;
-        }[]
+        }[],
+        ctx: TCtx
       ): IWorkerLogger;
     };
 
-export type IWorkerLogSource = {
+export type IWorkerLogSource<TCtx> = {
   names: { name: string; key?: number | string }[];
+  ctx: TCtx;
 };
 
 export type IWorkerLogIncludes = {
@@ -123,13 +129,13 @@ export type IWorkerLoggingStyleConfig = {
   replaceKey?: "truncate" | ((key: string) => string);
 };
 
-export type IWorkerLoggingConfig = IWorkerLogIncludes & {
+export type IWorkerLoggingConfig<TCtx> = IWorkerLogIncludes & {
   /**
    * Override the level of logging on a per logger source basis.
    *
    * Return `void` to indicate that the settings for the root logger should be used
    */
-  include?: (source: IWorkerLogSource) => IWorkerLogIncludes | void;
+  include?: (source: IWorkerLogSource<TCtx>) => IWorkerLogIncludes | void;
   /** Defaults to `true` */
   consoleStyle?: boolean | null | IWorkerLoggingStyleConfig;
 };
@@ -257,21 +263,27 @@ type InternalLoggerStyleRef = {
   prefix(this: InternalLoggerStyleRef, name: string): string;
 };
 
-type InternalLoggerRef = {
+type InternalLoggerRef<TCtx> = {
   loggingConsoleColor: boolean;
   loggerConsoleStyle: boolean;
   includes: Required<IWorkerLogIncludes>;
   filtered: (
-    this: IWorkerLogSource,
+    this: IWorkerLogSource<TCtx>,
     level: _LoggerLevel,
     message: string,
     args?: WorkerLoggable | (() => WorkerLoggable)
   ) => void;
-  include: (obj: IWorkerLogSource) => IWorkerLogIncludes | void;
-  create: (obj: IWorkerLogSource) => ILogger;
-  createExt: (obj: IWorkerLogSource) => IWorkerLogger;
+  include: (obj: IWorkerLogSource<TCtx>) => IWorkerLogIncludes | void;
+  create: (obj: IWorkerLogSource<any>) => ILogger<any>;
+  createExt: (obj: IWorkerLogSource<any>) => IWorkerLogger;
   style: InternalLoggerStyleRef;
-  named(this: InternalLoggerRef, parent: IWorkerLogSource, name: string, key?: number | string): ILogger;
+  named(
+    this: InternalLoggerRef<TCtx>,
+    parent: IWorkerLogSource<TCtx>,
+    name: string,
+    key?: number | string
+  ): ILogger<TCtx>;
+  with(this: InternalLoggerRef<TCtx>, parent: IWorkerLogSource<TCtx>, partial: Partial<TCtx>): ILogger<TCtx>;
 };
 
 const EMPTY_STRING = "";
@@ -292,7 +304,7 @@ const ANSI_RESET = "\u001b[0m";
 function muted(x: number, y: number) {
   return 22 + (x % 12) + (y % 6) * 36;
 }
-const DEFAULTS: InternalLoggerRef = {
+const DEFAULTS: InternalLoggerRef<unknown> = {
   loggingConsoleColor: true,
   loggerConsoleStyle: true,
   includes: Object.freeze({
@@ -304,9 +316,16 @@ const DEFAULTS: InternalLoggerRef = {
   },
   create: null!,
   createExt: null!,
-  named(this: InternalLoggerRef, parent, name, key) {
+  named(this: InternalLoggerRef<unknown>, parent, name, key) {
     return this.create({
       names: [...parent.names, { name, key }],
+      ctx: parent.ctx,
+    });
+  },
+  with(this: InternalLoggerRef<unknown>, parent, partial) {
+    return this.create({
+      names: parent.names,
+      ctx: typeof parent.ctx === "object" && parent.ctx != null ? { ...parent.ctx, ...partial } : partial,
     });
   },
   style: {
@@ -347,10 +366,10 @@ const DEFAULTS: InternalLoggerRef = {
 };
 
 /** @public internal facing root logger */
-export type IWorkerLoggerProvider = {
-  configureLogger(config: IWorkerLoggerConfig): void;
-  configureLogging(config: IWorkerLoggingConfig): void;
-  getLogger(): ILogger;
+export type IWorkerLoggerProvider<TCtx> = {
+  configureLogger(config: IWorkerLoggerConfig<TCtx>): void;
+  configureLogging(config: IWorkerLoggingConfig<TCtx>): void;
+  getLogger(): ILogger<TCtx>;
 };
 
 function newPrefixMemo(): Map<string, string> {
@@ -368,18 +387,19 @@ function newPrefixMemo(): Map<string, string> {
 //   _debug?: (message: string, args?: object) => void;
 // };
 
-export function createWorkerLoggerProvider(
-  useConsole: IWorkerConsoleLogger = console
-  // // Not yet, used, but good pattern to have in case we want to log something
-  // // or report something interesting.
-  // _options: IWorkerInternalLoggerOptions = {}
-): IWorkerLoggerProvider {
-  const ref: InternalLoggerRef = {
-    ...DEFAULTS,
+export function createWorkerLoggerProvider<$Ctx = void>({
+  console = globalThis.console,
+  ctx,
+}: {
+  console?: IWorkerConsoleLogger;
+  ctx?: $Ctx;
+} = {}): IWorkerLoggerProvider<$Ctx> {
+  const ref: InternalLoggerRef<any> = {
+    ...(DEFAULTS as InternalLoggerRef<any>),
   };
   const createConsole = {
-    styled: createConsoleLoggerStyled.bind(ref, useConsole),
-    noStyle: createConsoleLoggerNoStyle.bind(ref, useConsole),
+    styled: createConsoleLoggerStyled.bind(ref, console),
+    noStyle: createConsoleLoggerNoStyle.bind(ref, console),
   };
   // using external logger
   const createExtBound = createExtLogger.bind(ref);
@@ -397,10 +417,10 @@ export function createWorkerLoggerProvider(
         ref.loggerConsoleStyle = config.ansiColors ?? DEFAULTS.loggerConsoleStyle;
         ref.create = getConCreate();
       } else if (config.type === "keyed") {
-        ref.createExt = (source) => config.keyed(source.names);
+        ref.createExt = (source) => config.keyed(source.names, source.ctx);
         ref.create = createExtBound;
       } else if (config.type === "named") {
-        ref.createExt = configNamedToKeyed.bind(null, config.named);
+        ref.createExt = configNamedToKeyed.bind(null, config.named as (names: string[], ctx: unknown) => IWorkerLogger);
         ref.create = createExtBound;
       }
     },
@@ -458,10 +478,10 @@ export function createWorkerLoggerProvider(
         }
       }
       // console.log("%%%".repeat(12), { ref });
-      ref.create = getConCreate();
+      ref.create = getConCreate() as (obj: IWorkerLogSource<$Ctx>) => ILogger<$Ctx>;
     },
     getLogger() {
-      return ref.create({ names: [] });
+      return ref.create({ names: [], ctx });
     },
   };
 }
@@ -476,19 +496,23 @@ createWorkerLoggerProvider.WorkerLoggerLevel = WorkerLoggerLevel;
 export default createWorkerLoggerProvider;
 
 /** used by `configureLogger` for `'named'` */
-function configNamedToKeyed(namedFn: (names: string[]) => IWorkerLogger, source: IWorkerLogSource): IWorkerLogger {
+function configNamedToKeyed<TCtx>(
+  namedFn: (names: string[], ctx: TCtx) => IWorkerLogger,
+  source: IWorkerLogSource<TCtx>
+): IWorkerLogger {
   const names: string[] = [];
   for (let { name, key } of source.names) {
     names.push(key == null ? name : `${name} (${key})`);
   }
-  return namedFn(names);
+  return namedFn(names, source.ctx);
 }
 
 // external logger (provided from user)
-function createExtLogger(this: InternalLoggerRef, source: IWorkerLogSource): ILogger {
+function createExtLogger<TCtx>(this: InternalLoggerRef<TCtx>, source: IWorkerLogSource<TCtx>): ILogger<TCtx> {
   const includes = { ...this.includes, ...this.include(source) };
   const f = this.filtered;
   const named = this.named.bind(this, source);
+  const withCtx = this.with.bind(this, source);
   const ext = this.createExt(source);
 
   const _HMM = shouldLog(includes, _LoggerLevel._HMM);
@@ -503,7 +527,9 @@ function createExtLogger(this: InternalLoggerRef, source: IWorkerLogSource): ILo
   const _warn = _WARN ? ext.warn.bind(ext, LEVELS.warn) : f.bind(source, _LoggerLevel._WARN);
   const _debug = _DEBUG ? ext.debug.bind(ext, LEVELS.debug) : f.bind(source, _LoggerLevel._DEBUG);
   const _trace = _TRACE ? ext.trace.bind(ext, LEVELS.trace) : f.bind(source, _LoggerLevel._TRACE);
-  const logger: ILogger = {
+  const logger: ILogger<TCtx> = {
+    ctx: source.ctx,
+    with: withCtx,
     hmm: _hmm,
     todo: _todo,
     error: _error,
@@ -517,11 +543,11 @@ function createExtLogger(this: InternalLoggerRef, source: IWorkerLogSource): ILo
   return logger;
 }
 
-function createConsoleLoggerStyled(
-  this: InternalLoggerRef,
+function createConsoleLoggerStyled<TCtx>(
+  this: InternalLoggerRef<TCtx>,
   con: IWorkerConsoleLogger,
-  source: IWorkerLogSource
-): ILogger {
+  source: IWorkerLogSource<TCtx>
+): ILogger<TCtx> {
   const includes = { ...this.includes, ...this.include(source) };
 
   const len = source.names.length;
@@ -538,14 +564,15 @@ function createConsoleLoggerStyled(
   }
 
   const named = this.named.bind(this, source);
-  return _createConsoleLogger(this.filtered, source, includes, con, true, nameArr, named);
+  const withCtx = this.with.bind(this, source);
+  return _createConsoleLogger(this.filtered, source, includes, con, true, nameArr, named, withCtx);
 }
 
-function createConsoleLoggerNoStyle(
-  this: InternalLoggerRef,
+function createConsoleLoggerNoStyle<TCtx>(
+  this: InternalLoggerRef<TCtx>,
   con: IWorkerConsoleLogger,
-  source: IWorkerLogSource
-): ILogger {
+  source: IWorkerLogSource<TCtx>
+): ILogger<TCtx> {
   const includes = { ...this.includes, ...this.include(source) };
 
   const nameArr = new Array(source.names.length);
@@ -558,7 +585,8 @@ function createConsoleLoggerNoStyle(
   }
 
   const named = this.named.bind(this, source);
-  return _createConsoleLogger(this.filtered, source, includes, con, false, nameArr, named);
+  const withCtx = this.with.bind(this, source);
+  return _createConsoleLogger(this.filtered, source, includes, con, false, nameArr, named, withCtx);
 }
 
 const COLOR_HMM = ANSI_RESET + "\u001b[38;5;13m";
@@ -568,14 +596,21 @@ const COLOR_WARN = ANSI_RESET + "\u001b[38;5;11m";
 const COLOR_DEBUG = ANSI_RESET + "\u001b[38;5;15m";
 const COLOR_TRACE = ANSI_RESET + "\u001b[38;5;7m";
 /** Used by {@link createConsoleLoggerNoStyle} and {@link createConsoleLoggerStyled} */
-function _createConsoleLogger(
-  f: (this: IWorkerLogSource, level: _LoggerLevel, message: string, args?: object | undefined) => void,
-  source: IWorkerLogSource,
+function _createConsoleLogger<TCtx>(
+  f: (
+    this: IWorkerLogSource<TCtx>,
+    level: _LoggerLevel,
+    message: string,
+    args?: object | undefined,
+    ctx?: TCtx
+  ) => void,
+  source: IWorkerLogSource<TCtx>,
   includes: Required<IWorkerLogIncludes>,
   con: IWorkerConsoleLogger,
   styled: boolean,
   prefix: ReadonlyArray<any>,
-  named: (name: string, key?: string | number | undefined) => ILogger
+  named: (name: string, key?: string | number | undefined) => ILogger<TCtx>,
+  withCtx: (partial: Partial<TCtx>) => ILogger<TCtx>
 ) {
   const _HMM = shouldLog(includes, _LoggerLevel._HMM);
   const _TODO = shouldLog(includes, _LoggerLevel._TODO);
@@ -613,7 +648,9 @@ function _createConsoleLogger(
       ? con.debug.bind(con, `${COLOR_TRACE}TRACE`, ...prefix, COLOR_TRACE)
       : con.debug.bind(con, ...prefix)
     : f.bind(source, _LoggerLevel._TRACE);
-  const logger: ILogger = {
+  const logger: ILogger<TCtx> = {
+    ctx: source.ctx,
+    with: withCtx,
     hmm: _hmm,
     todo: _todo,
     error: _error,

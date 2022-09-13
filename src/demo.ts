@@ -1,4 +1,4 @@
-import { WorkerLoggerLevel, createWorkerLoggerProvider, ILogger } from "./workerlog";
+import { createWorkerLoggerProvider, ILogger } from "./workerlog";
 
 console.log("No style!");
 const name = "Hello";
